@@ -166,6 +166,21 @@ export function setupSocketHandlers(io, socket) {
     }
   });
 
+  // ─── Leave Room ───
+  socket.on('leaveRoom', () => {
+    const room = roomManager.getRoom(gameId);
+    if (!room) return;
+
+    if (room.hostId === playerId) {
+      io.to(gameId).emit('roomDissolved', { message: 'Host left the lobby' });
+      roomManager.removeRoom(gameId);
+    } else {
+      room.removePlayer(playerId);
+      io.to(gameId).emit('playerLeft', { playerId, displayName });
+    }
+    socket.leave(gameId);
+  });
+
   // ─── Disconnect Handling ───
   socket.on('disconnect', (reason) => {
     const room = roomManager.getRoom(gameId);
@@ -176,6 +191,20 @@ export function setupSocketHandlers(io, socket) {
 
     player.connected = false;
     player.socketId = null;
+
+    // If game has not started yet and host disconnects, dissolve the room
+    if (room.phase === 'LOBBY' && room.hostId === playerId) {
+      io.to(gameId).emit('roomDissolved', { message: 'Host disconnected. Room closed.' });
+      roomManager.removeRoom(gameId);
+      return;
+    }
+
+    // If in lobby and a non-host player disconnects, immediately remove them
+    if (room.phase === 'LOBBY') {
+      room.removePlayer(playerId);
+      io.to(gameId).emit('playerLeft', { playerId, displayName });
+      return;
+    }
 
     // Notify room
     io.to(gameId).emit('playerDisconnected', { playerId, displayName });
