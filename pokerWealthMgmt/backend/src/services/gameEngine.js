@@ -1,0 +1,154 @@
+/**
+ * Game Engine — Orchestrator between GameRoom state machine, Socket.IO broadcasting, and turn timers.
+ * All game logic flows through here: action processing, round management, and winner declaration.
+ */
+
+class GameEngine {
+  /**
+   * Process a player's betting action and broadcast the result to the room.
+   * @param {import('../models/GameRoom.js').default} room - The game room
+   * @param {string} playerId - The acting player's ID
+   * @param {Object} actionObj - { action: string, amount?: number }
+   * @param {import('socket.io').Server} io - Socket.IO server
+   * @returns {Object} The action result
+   */
+  processPlayerAction(room, playerId, actionObj, io) {
+    const player = room.players.get(playerId);
+    if (!player) throw new Error('Player not found');
+
+    const result = room.processAction(playerId, actionObj);
+
+    // Build wallet snapshot for broadcast
+    const wallets = {};
+    for (const [id, p] of room.players.entries()) {
+      wallets[id] = p.wallet;
+    }
+
+    // Broadcast the action to the entire room
+    io.to(room.gameId).emit('playerAction', {
+      playerId,
+      displayName: player.displayName,
+      action: actionObj.action,
+      amount: result.delta || 0,
+      pot: room.pot,
+      currentStake: room.currentStake,
+      autoAction: false,
+      wallets,
+    });
+
+    // Handle post-action state
+    if (room.phase === 'SETTLEMENT') {
+      // Auto-win happened (everyone else packed) — winner already declared in GameRoom
+      const activePlayers = room.getActivePlayers();
+      const winner = activePlayers.length === 1 ? activePlayers[0] : null;
+
+      io.to(room.gameId).emit('roundSettled', {
+        winnerId: winner ? winner.playerId : null,
+        potAmount: room.pot,
+        wallets,
+        roundNumber: room.roundNumber,
+      });
+    } else if (room.phase === 'SHOWDOWN') {
+      // Show was requested — prompt for winner declaration
+      const activePlayers = room.getActivePlayers();
+      io.to(room.gameId).emit('showdown', {
+        players: activePlayers.map(p => ({
+          playerId: p.playerId,
+          displayName: p.displayName,
+          status: p.status,
+        })),
+        pot: room.pot,
+      });
+    } else if (room.phase === 'BETTING') {
+      // Broadcast turn change
+      this.broadcastTurnChange(room, io);
+    }
+
+    return result;
+  }
+
+  /**
+   * Start a new round of betting.
+   * @param {import('../models/GameRoom.js').default} room
+   * @param {import('socket.io').Server} io
+   */
+  startNewRound(room, io) {
+    // Reset if coming from a previous round
+    if (room.phase === 'SETTLEMENT') {
+      room.resetForNewRound();
+    }
+
+    room.startRound();
+
+    // Build wallet snapshot
+    const wallets = {};
+    for (const [id, p] of room.players.entries()) {
+      wallets[id] = p.wallet;
+    }
+
+    const currentPlayerId = room.turnOrder[room.currentTurnIndex];
+
+    io.to(room.gameId).emit('roundStarted', {
+      roundNumber: room.roundNumber,
+      turnOrder: room.turnOrder,
+      currentStake: room.currentStake,
+      pot: room.pot,
+      wallets,
+      currentTurnPlayerId: currentPlayerId,
+      players: Object.fromEntries(
+        Array.from(room.players.entries()).map(([k, v]) => [k, v.toJSON()])
+      ),
+    });
+
+    // Broadcast initial turn
+    this.broadcastTurnChange(room, io);
+  }
+
+  /**
+   * Declare a winner and settle the round.
+   * @param {import('../models/GameRoom.js').default} room
+   * @param {string} winnerId
+   * @param {import('socket.io').Server} io
+   */
+  declareWinner(room, winnerId, io) {
+    const winner = room.players.get(winnerId);
+    if (!winner) throw new Error('Winner not found in room');
+
+    const potAmount = room.pot;
+    room.declareWinner(winnerId);
+
+    // Build wallet snapshot
+    const wallets = {};
+    for (const [id, p] of room.players.entries()) {
+      wallets[id] = p.wallet;
+    }
+
+    io.to(room.gameId).emit('roundSettled', {
+      winnerId,
+      displayName: winner.displayName,
+      potAmount,
+      wallets,
+      roundNumber: room.roundNumber,
+    });
+  }
+
+  /**
+   * Broadcast whose turn it is, along with their legal actions and timer info.
+   * @param {import('../models/GameRoom.js').default} room
+   * @param {import('socket.io').Server} io
+   */
+  broadcastTurnChange(room, io) {
+    const currentPlayerId = room.turnOrder[room.currentTurnIndex];
+    if (!currentPlayerId) return;
+
+    const legalActions = room.getLegalActions(currentPlayerId);
+
+    io.to(room.gameId).emit('turnChanged', {
+      playerId: currentPlayerId,
+      legalActions,
+      timeoutSeconds: room.config.turnTimerSeconds,
+    });
+  }
+}
+
+export default new GameEngine();
