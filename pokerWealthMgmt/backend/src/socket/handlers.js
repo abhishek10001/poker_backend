@@ -171,12 +171,18 @@ export function setupSocketHandlers(io, socket) {
     const room = roomManager.getRoom(gameId);
     if (!room) return;
 
+    const timerKey = `${gameId}:${playerId}`;
+    if (disconnectTimers.has(timerKey)) {
+      clearTimeout(disconnectTimers.get(timerKey));
+      disconnectTimers.delete(timerKey);
+    }
+
     if (room.hostId === playerId) {
       io.to(gameId).emit('roomDissolved', { message: 'Host left the lobby' });
       roomManager.removeRoom(gameId);
     } else {
       room.removePlayer(playerId);
-      io.to(gameId).emit('playerLeft', { playerId, displayName });
+      io.to(gameId).emit('playerLeft', { playerId, displayName, reason: 'left_room' });
     }
     socket.leave(gameId);
   });
@@ -192,21 +198,8 @@ export function setupSocketHandlers(io, socket) {
     player.connected = false;
     player.socketId = null;
 
-    // If game has not started yet and host disconnects, dissolve the room
-    if (room.phase === 'LOBBY' && room.hostId === playerId) {
-      io.to(gameId).emit('roomDissolved', { message: 'Host disconnected. Room closed.' });
-      roomManager.removeRoom(gameId);
-      return;
-    }
-
-    // If in lobby and a non-host player disconnects, immediately remove them
-    if (room.phase === 'LOBBY') {
-      room.removePlayer(playerId);
-      io.to(gameId).emit('playerLeft', { playerId, displayName });
-      return;
-    }
-
-    // Notify room
+    // Notify room that player connection dropped, but keep them in the room
+    // until they explicitly leave.
     io.to(gameId).emit('playerDisconnected', { playerId, displayName });
 
     // Start 2-minute grace period
@@ -269,8 +262,7 @@ export function setupSocketHandlers(io, socket) {
         }
       }
 
-      // Notify room that player timed out
-      io.to(gameId).emit('playerLeft', { playerId, displayName, reason: 'disconnect_timeout' });
+      // Keep player in room after timeout; they remain disconnected and can rejoin.
     }, gracePeriod);
 
     disconnectTimers.set(timerKey, timer);
