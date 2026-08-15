@@ -187,10 +187,13 @@ export default class GameRoom {
 
   declareWinner(winnerId) {
     const winner = this.players.get(winnerId);
+    const potAmount = this.pot;  // capture before zeroing
     if (winner) {
       winner.credit(this.pot);
     }
+    this.pot = 0;  // explicitly zero pot after crediting
     this.phase = 'SETTLEMENT';
+    return potAmount;  // return so callers can use it
   }
 
   advanceTurn() {
@@ -210,6 +213,12 @@ export default class GameRoom {
 
   getActivePlayers() {
     return Array.from(this.players.values()).filter(p => p.isActive());
+  }
+
+  getBankruptPlayers() {
+    return Array.from(this.players.values()).filter(
+      p => p.connected && p.wallet < this.config.bootAmount
+    );
   }
 
   getFullState() {
@@ -242,6 +251,9 @@ export default class GameRoom {
   resetForNewRound() {
     this.pot = 0;
     this.currentStake = 0;
+    this.currentTurnIndex = -1;
+    this.turnOrder = [];
+    this.actionLog = [];
     this.phase = 'LOBBY';
     for (const player of this.players.values()) {
       player.status = 'waiting';

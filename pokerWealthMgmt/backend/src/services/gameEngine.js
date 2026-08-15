@@ -16,9 +16,12 @@ class GameEngine {
     const player = room.players.get(playerId);
     if (!player) throw new Error('Player not found');
 
+    // Capture pot before action (in case auto-win zeros it)
+    const potBeforeAction = room.pot;
+
     const result = room.processAction(playerId, actionObj);
 
-    // Build wallet snapshot for broadcast
+    // Build wallet snapshot
     const wallets = {};
     for (const [id, p] of room.players.entries()) {
       wallets[id] = p.wallet;
@@ -30,7 +33,7 @@ class GameEngine {
       displayName: player.displayName,
       action: actionObj.action,
       amount: result.delta || 0,
-      pot: room.pot,
+      pot: room.phase === 'SETTLEMENT' ? (potBeforeAction + (result.delta || 0)) : room.pot,
       currentStake: room.currentStake,
       autoAction: false,
       wallets,
@@ -38,13 +41,14 @@ class GameEngine {
 
     // Handle post-action state
     if (room.phase === 'SETTLEMENT') {
-      // Auto-win happened (everyone else packed) — winner already declared in GameRoom
+      // Auto-win happened (everyone else packed)
       const activePlayers = room.getActivePlayers();
       const winner = activePlayers.length === 1 ? activePlayers[0] : null;
 
       io.to(room.gameId).emit('roundSettled', {
         winnerId: winner ? winner.playerId : null,
-        potAmount: room.pot,
+        displayName: winner ? winner.displayName : '',
+        potAmount: potBeforeAction + (result.delta || 0),
         wallets,
         roundNumber: room.roundNumber,
       });
@@ -76,6 +80,19 @@ class GameEngine {
     // Reset if coming from a previous round
     if (room.phase === 'SETTLEMENT') {
       room.resetForNewRound();
+    }
+
+    // Check if enough players have sufficient funds BEFORE starting
+    const eligiblePlayers = Array.from(room.players.values()).filter(
+      p => p.connected && p.wallet >= room.config.bootAmount
+    );
+    const bankruptPlayers = room.getBankruptPlayers();
+
+    if (eligiblePlayers.length < 2) {
+      const bankruptNames = bankruptPlayers.map(p => p.displayName).join(', ');
+      throw new Error(
+        `Cannot start: only ${eligiblePlayers.length} player(s) can afford the boot. Bankrupt: ${bankruptNames || 'none'}`
+      );
     }
 
     room.startRound();
@@ -114,8 +131,7 @@ class GameEngine {
     const winner = room.players.get(winnerId);
     if (!winner) throw new Error('Winner not found in room');
 
-    const potAmount = room.pot;
-    room.declareWinner(winnerId);
+    const potAmount = room.declareWinner(winnerId);  // now returns pot amount
 
     // Build wallet snapshot
     const wallets = {};
