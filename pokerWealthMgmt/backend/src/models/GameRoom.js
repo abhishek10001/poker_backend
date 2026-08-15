@@ -153,7 +153,7 @@ export default class GameRoom {
 
   handleChaal(playerId) {
     const player = this.players.get(playerId);
-    const cost = player.status === 'blind' ? this.currentStake : this.currentStake * 2;
+    const cost = this.currentStake;
     player.deduct(cost);
     this.pot += cost;
   }
@@ -167,7 +167,7 @@ export default class GameRoom {
     }
     const player = this.players.get(playerId);
     this.currentStake = newStake;
-    const cost = player.status === 'blind' ? this.currentStake : this.currentStake * 2;
+    const cost = this.currentStake;
     player.deduct(cost);
     this.pot += cost;
   }
