@@ -112,8 +112,15 @@ class GameEngine {
       pot: room.pot,
       wallets,
       currentTurnPlayerId: currentPlayerId,
+      hostId: room.hostId,
       players: Object.fromEntries(
-        Array.from(room.players.entries()).map(([k, v]) => [k, v.toJSON()])
+        Array.from(room.players.entries()).map(([k, v]) => [
+          k,
+          {
+            ...v.toJSON(),
+            isHost: k === room.hostId,
+          }
+        ])
       ),
     });
 

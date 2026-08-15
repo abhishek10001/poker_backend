@@ -233,7 +233,13 @@ export default class GameRoom {
       currentTurnIndex: this.currentTurnIndex,
       roundNumber: this.roundNumber,
       players: Object.fromEntries(
-        Array.from(this.players.entries()).map(([k, v]) => [k, v.toJSON()])
+        Array.from(this.players.entries()).map(([k, v]) => [
+          k,
+          {
+            ...v.toJSON(),
+            isHost: k === this.hostId,
+          }
+        ])
       )
     };
   }
