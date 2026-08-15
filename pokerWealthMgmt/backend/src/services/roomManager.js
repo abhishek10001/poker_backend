@@ -17,7 +17,8 @@ class RoomManager {
     const hostPlayerId = generatePlayerId();
     
     const room = new GameRoom(gameId, hostPlayerId, config);
-    const hostPlayer = new Player(hostPlayerId, hostDisplayName, 0);
+    const hostWallet = Math.max(1000, (config?.bootAmount || 100) * 10);
+    const hostPlayer = new Player(hostPlayerId, hostDisplayName, hostWallet);
     room.addPlayer(hostPlayer);
     
     this.rooms.set(gameId, room);
