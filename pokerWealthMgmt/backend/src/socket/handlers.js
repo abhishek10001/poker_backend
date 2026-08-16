@@ -179,10 +179,14 @@ export function setupSocketHandlers(io, socket) {
 
     if (room.hostId === playerId) {
       io.to(gameId).emit('roomDissolved', { message: 'Host left the lobby' });
+      io.in(gameId).socketsLeave(gameId);
       roomManager.removeRoom(gameId);
     } else {
       room.removePlayer(playerId);
       io.to(gameId).emit('playerLeft', { playerId, displayName, reason: 'left_room' });
+      if (room.players.size === 0) {
+        roomManager.removeRoom(gameId);
+      }
     }
     socket.leave(gameId);
   });
@@ -197,6 +201,19 @@ export function setupSocketHandlers(io, socket) {
 
     player.connected = false;
     player.socketId = null;
+
+    // If host disconnects while in LOBBY phase, dissolve the room immediately
+    if (room.phase === 'LOBBY' && room.hostId === playerId) {
+      const timerKey = `${gameId}:${playerId}`;
+      if (disconnectTimers.has(timerKey)) {
+        clearTimeout(disconnectTimers.get(timerKey));
+        disconnectTimers.delete(timerKey);
+      }
+      io.to(gameId).emit('roomDissolved', { message: 'Host disconnected from lobby' });
+      io.in(gameId).socketsLeave(gameId);
+      roomManager.removeRoom(gameId);
+      return;
+    }
 
     // Notify room that player connection dropped, but keep them in the room
     // until they explicitly leave.
