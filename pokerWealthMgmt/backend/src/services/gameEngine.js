@@ -152,6 +152,33 @@ class GameEngine {
       potAmount,
       wallets,
       roundNumber: room.roundNumber,
+      isTie: false,
+    });
+  }
+
+  /**
+   * Declare a tie and split the pot equally among active players.
+   * @param {import('../models/GameRoom.js').default} room
+   * @param {import('socket.io').Server} io
+   */
+  declareTie(room, io) {
+    const activePlayers = room.getActivePlayers();
+    const potAmount = room.declareTie();
+
+    // Build wallet snapshot
+    const wallets = {};
+    for (const [id, p] of room.players.entries()) {
+      wallets[id] = p.wallet;
+    }
+
+    io.to(room.gameId).emit('roundSettled', {
+      winnerId: null,
+      displayName: 'Split Pot (Tie)',
+      isTie: true,
+      potAmount,
+      wallets,
+      roundNumber: room.roundNumber,
+      splitAmong: activePlayers.map(p => p.displayName),
     });
   }
 

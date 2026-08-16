@@ -196,6 +196,23 @@ export default class GameRoom {
     return potAmount;  // return so callers can use it
   }
 
+  declareTie() {
+    const activePlayers = this.getActivePlayers();
+    const potAmount = this.pot;
+    if (activePlayers.length > 0) {
+      const share = Math.floor(potAmount / activePlayers.length);
+      let remainder = potAmount % activePlayers.length;
+      for (const p of activePlayers) {
+        const creditAmount = share + (remainder > 0 ? 1 : 0);
+        p.credit(creditAmount);
+        if (remainder > 0) remainder--;
+      }
+    }
+    this.pot = 0;
+    this.phase = 'SETTLEMENT';
+    return potAmount;
+  }
+
   advanceTurn() {
     let attempts = 0;
     const total = this.turnOrder.length;

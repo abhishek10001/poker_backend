@@ -43,10 +43,19 @@ class RoomManager {
     
     const playerId = generatePlayerId();
     const player = new Player(playerId, displayName, buyInAmount);
+    if (room.phase !== 'LOBBY') {
+      player.status = 'waiting';
+    }
     room.addPlayer(player);
     
     const sessionToken = await this.generateSessionToken(playerId, gameId);
-    return { playerId, sessionToken };
+    return {
+      playerId,
+      sessionToken,
+      gameId,
+      phase: room.phase,
+      config: room.config,
+    };
   }
 
   getRoom(gameId) {

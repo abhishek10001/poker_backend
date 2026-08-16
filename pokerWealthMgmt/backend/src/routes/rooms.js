@@ -65,6 +65,9 @@ router.post('/:gameId/join', async (req, res) => {
     res.status(200).json({
       playerId: result.playerId,
       sessionToken: result.sessionToken,
+      gameId: result.gameId,
+      phase: result.phase,
+      config: result.config,
     });
   } catch (err) {
     if (err.message === 'Room not found') {

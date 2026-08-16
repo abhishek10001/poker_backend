@@ -87,20 +87,26 @@ export function setupSocketHandlers(io, socket) {
     }
   });
 
-  // ─── Declare Winner ───
+  // ─── Declare Winner / Tie ───
   socket.on('declareWinner', (data) => {
     try {
-      const { winnerId } = data || {};
-      if (!winnerId) {
-        return socket.emit('error', { message: 'winnerId is required', code: 'INVALID_INPUT' });
-      }
-
+      const { winnerId, isTie } = data || {};
       const room = roomManager.getRoom(gameId);
       if (!room) {
         return socket.emit('error', { message: 'Room not found', code: 'ROOM_NOT_FOUND' });
       }
+      if (room.hostId !== playerId) {
+        return socket.emit('error', { message: 'Only the host can declare a winner', code: 'NOT_HOST' });
+      }
 
-      gameEngine.declareWinner(room, winnerId, io);
+      if (isTie) {
+        gameEngine.declareTie(room, io);
+      } else {
+        if (!winnerId) {
+          return socket.emit('error', { message: 'winnerId is required', code: 'INVALID_INPUT' });
+        }
+        gameEngine.declareWinner(room, winnerId, io);
+      }
       turnTimer.clearTimer(gameId);
     } catch (err) {
       socket.emit('error', { message: err.message, code: 'DECLARE_WINNER_ERROR' });
@@ -178,9 +184,11 @@ export function setupSocketHandlers(io, socket) {
     }
 
     if (room.hostId === playerId) {
-      io.to(gameId).emit('roomDissolved', { message: 'Host left the lobby' });
-      io.in(gameId).socketsLeave(gameId);
+      io.to(gameId).emit('roomDissolved', { message: 'Host left the game. Room closed.' });
       roomManager.removeRoom(gameId);
+      setTimeout(() => {
+        io.in(gameId).socketsLeave(gameId);
+      }, 300);
     } else {
       room.removePlayer(playerId);
       io.to(gameId).emit('playerLeft', { playerId, displayName, reason: 'left_room' });
@@ -210,8 +218,10 @@ export function setupSocketHandlers(io, socket) {
         disconnectTimers.delete(timerKey);
       }
       io.to(gameId).emit('roomDissolved', { message: 'Host disconnected from lobby' });
-      io.in(gameId).socketsLeave(gameId);
       roomManager.removeRoom(gameId);
+      setTimeout(() => {
+        io.in(gameId).socketsLeave(gameId);
+      }, 300);
       return;
     }
 
