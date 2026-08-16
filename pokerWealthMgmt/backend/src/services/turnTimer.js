@@ -1,3 +1,5 @@
+import gameEngine from './gameEngine.js';
+
 class TurnTimer {
   constructor() {
     this.timers = new Map();
@@ -5,31 +7,34 @@ class TurnTimer {
 
   startTimer(gameId, room, io, timeoutMs) {
     this.clearTimer(gameId);
+    if (!room || room.phase !== 'BETTING') return;
+
     const timeout = setTimeout(() => {
       // Auto-pack player on timeout
       try {
+        if (!room || room.phase !== 'BETTING') {
+          this.clearTimer(gameId);
+          return;
+        }
+
         const currentPlayerId = room.turnOrder[room.currentTurnIndex];
         if (currentPlayerId) {
-          room.processAction(currentPlayerId, { action: 'PACK' });
-          io.to(gameId).emit('turnTimedOut', { playerId: currentPlayerId });
+          console.log(`[TurnTimer] Turn timed out for player ${currentPlayerId} in room ${gameId}. Auto-packing.`);
           
-          const active = room.getActivePlayers();
-          if (active.length === 1 && room.phase === 'BETTING') {
-             // Auto-win is handled by room.processAction, just need to broadcast
-             io.to(gameId).emit('roundSettled', { winnerId: active[0].playerId, pot: room.pot });
-          } else if (room.phase === 'BETTING') {
-             // Broadcast next turn
-             const nextPlayerId = room.turnOrder[room.currentTurnIndex];
-             io.to(gameId).emit('turnChanged', {
-                playerId: nextPlayerId,
-                legalActions: room.getLegalActions(nextPlayerId),
-                timeoutMs
-             });
-             this.startTimer(gameId, room, io, timeoutMs);
+          // Delegate to gameEngine to process PACK action so all events (playerAction, roundSettled, turnChanged)
+          // and wallet snapshots are properly broadcast to all clients
+          gameEngine.processPlayerAction(room, currentPlayerId, { action: 'PACK' }, io, { autoAction: true });
+
+          // If game is still in betting phase, start timer for next player
+          if (room.phase === 'BETTING') {
+            this.resetTimer(gameId, room, io);
+          } else {
+            this.clearTimer(gameId);
           }
         }
       } catch (err) {
-        console.error('Auto-pack error:', err);
+        console.error('[TurnTimer] Auto-pack error:', err);
+        this.clearTimer(gameId);
       }
     }, timeoutMs);
     
@@ -45,7 +50,10 @@ class TurnTimer {
 
   resetTimer(gameId, room, io) {
     this.clearTimer(gameId);
-    this.startTimer(gameId, room, io, room.config.turnTimerSeconds * 1000);
+    if (room && room.phase === 'BETTING') {
+      const timeoutMs = (room.config?.turnTimerSeconds || 30) * 1000;
+      this.startTimer(gameId, room, io, timeoutMs);
+    }
   }
 }
 

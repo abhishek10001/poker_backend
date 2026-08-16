@@ -12,7 +12,7 @@ class GameEngine {
    * @param {import('socket.io').Server} io - Socket.IO server
    * @returns {Object} The action result
    */
-  processPlayerAction(room, playerId, actionObj, io) {
+  processPlayerAction(room, playerId, actionObj, io, options = {}) {
     const player = room.players.get(playerId);
     if (!player) throw new Error('Player not found');
 
@@ -27,15 +27,19 @@ class GameEngine {
       wallets[id] = p.wallet;
     }
 
+    const actionAmount = (actionObj.action === 'PACK' || actionObj.action === 'SEEN') ? 0 : (result.delta > 0 ? result.delta : 0);
+    const settledPotAmount = potBeforeAction + actionAmount;
+
     // Broadcast the action to the entire room
     io.to(room.gameId).emit('playerAction', {
       playerId,
       displayName: player.displayName,
       action: actionObj.action,
-      amount: result.delta || 0,
-      pot: room.phase === 'SETTLEMENT' ? (potBeforeAction + (result.delta || 0)) : room.pot,
+      amount: actionAmount,
+      pot: room.phase === 'SETTLEMENT' ? settledPotAmount : room.pot,
       currentStake: room.currentStake,
-      autoAction: false,
+      autoAction: options.autoAction || false,
+      reason: options.reason || undefined,
       wallets,
     });
 
@@ -48,7 +52,7 @@ class GameEngine {
       io.to(room.gameId).emit('roundSettled', {
         winnerId: winner ? winner.playerId : null,
         displayName: winner ? winner.displayName : '',
-        potAmount: potBeforeAction + (result.delta || 0),
+        potAmount: settledPotAmount,
         wallets,
         roundNumber: room.roundNumber,
       });

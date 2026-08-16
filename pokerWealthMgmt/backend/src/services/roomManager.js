@@ -1,6 +1,7 @@
 import { generateGameId, generatePlayerId, generateSessionToken } from '../utils/idGenerator.js';
 import GameRoom from '../models/GameRoom.js';
 import Player from '../models/Player.js';
+import turnTimer from './turnTimer.js';
 
 class RoomManager {
   constructor() {
@@ -64,6 +65,7 @@ class RoomManager {
 
   async removeRoom(gameId) {
     this.rooms.delete(gameId);
+    turnTimer.clearTimer(gameId);
     if (this.redisClient) {
       await this.redisClient.del(`room:${gameId}`);
       await this.redisClient.del(`sessions:${gameId}`);

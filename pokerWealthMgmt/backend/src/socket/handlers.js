@@ -7,6 +7,19 @@ import { playerActionSchema } from '../utils/validator.js';
 const disconnectTimers = new Map();
 
 /**
+ * Clear all pending disconnect grace timers for a specific room.
+ * @param {string} gameId
+ */
+function clearRoomDisconnectTimers(gameId) {
+  for (const [key, timer] of disconnectTimers.entries()) {
+    if (key.startsWith(`${gameId}:`)) {
+      clearTimeout(timer);
+      disconnectTimers.delete(key);
+    }
+  }
+}
+
+/**
  * Sets up all Socket.IO event handlers for a connected socket.
  * @param {import('socket.io').Server} io - The Socket.IO server instance
  * @param {import('socket.io').Socket} socket - The connected socket
@@ -184,6 +197,7 @@ export function setupSocketHandlers(io, socket) {
     }
 
     if (room.hostId === playerId) {
+      clearRoomDisconnectTimers(gameId);
       io.to(gameId).emit('roomDissolved', { message: 'Host left the game. Room closed.' });
       roomManager.removeRoom(gameId);
       setTimeout(() => {
@@ -193,6 +207,7 @@ export function setupSocketHandlers(io, socket) {
       room.removePlayer(playerId);
       io.to(gameId).emit('playerLeft', { playerId, displayName, reason: 'left_room' });
       if (room.players.size === 0) {
+        clearRoomDisconnectTimers(gameId);
         roomManager.removeRoom(gameId);
       }
     }
@@ -212,11 +227,7 @@ export function setupSocketHandlers(io, socket) {
 
     // If host disconnects while in LOBBY phase, dissolve the room immediately
     if (room.phase === 'LOBBY' && room.hostId === playerId) {
-      const timerKey = `${gameId}:${playerId}`;
-      if (disconnectTimers.has(timerKey)) {
-        clearTimeout(disconnectTimers.get(timerKey));
-        disconnectTimers.delete(timerKey);
-      }
+      clearRoomDisconnectTimers(gameId);
       io.to(gameId).emit('roomDissolved', { message: 'Host disconnected from lobby' });
       roomManager.removeRoom(gameId);
       setTimeout(() => {
@@ -248,41 +259,15 @@ export function setupSocketHandlers(io, socket) {
         currentRoom.turnOrder[currentRoom.currentTurnIndex] === playerId
       ) {
         try {
-          currentRoom.processAction(playerId, { action: 'PACK' });
-          io.to(gameId).emit('playerAction', {
-            playerId,
-            displayName,
-            action: 'PACK',
-            amount: 0,
-            pot: currentRoom.pot,
-            currentStake: currentRoom.currentStake,
+          gameEngine.processPlayerAction(currentRoom, playerId, { action: 'PACK' }, io, {
             autoAction: true,
             reason: 'disconnect_timeout',
-            wallets: Object.fromEntries(
-              Array.from(currentRoom.players.entries()).map(([id, p]) => [id, p.wallet])
-            ),
           });
 
-          // Check for auto-win after pack
-          if (currentRoom.phase === 'SETTLEMENT') {
-            const winner = currentRoom.getActivePlayers()[0];
-            if (winner) {
-              io.to(gameId).emit('roundSettled', {
-                winnerId: winner.playerId,
-                potAmount: 0, // pot already distributed
-                wallets: Object.fromEntries(
-                  Array.from(currentRoom.players.entries()).map(([id, p]) => [id, p.wallet])
-                ),
-              });
-            }
-          } else if (currentRoom.phase === 'BETTING') {
-            const nextPlayerId = currentRoom.turnOrder[currentRoom.currentTurnIndex];
-            io.to(gameId).emit('turnChanged', {
-              playerId: nextPlayerId,
-              legalActions: currentRoom.getLegalActions(nextPlayerId),
-              timeoutSeconds: currentRoom.config.turnTimerSeconds,
-            });
+          if (currentRoom.phase === 'BETTING') {
             turnTimer.resetTimer(gameId, currentRoom, io);
+          } else {
+            turnTimer.clearTimer(gameId);
           }
         } catch (err) {
           console.error(`Auto-pack on disconnect timeout failed: ${err.message}`);
