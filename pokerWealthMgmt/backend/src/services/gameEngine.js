@@ -41,6 +41,8 @@ class GameEngine {
       autoAction: options.autoAction || false,
       reason: options.reason || undefined,
       wallets,
+      playerStatus: player.status,
+      hasBooted: player.hasBooted,
     });
 
     // Handle post-action state
@@ -67,9 +69,6 @@ class GameEngine {
         })),
         pot: room.pot,
       });
-    } else if (room.phase === 'BETTING') {
-      // Broadcast turn change
-      this.broadcastTurnChange(room, io);
     }
 
     return result;
@@ -86,17 +85,9 @@ class GameEngine {
       room.resetForNewRound();
     }
 
-    // Check if enough players have sufficient funds BEFORE starting
-    const eligiblePlayers = Array.from(room.players.values()).filter(
-      p => p.connected && p.wallet >= room.config.bootAmount
-    );
-    const bankruptPlayers = room.getBankruptPlayers();
-
-    if (eligiblePlayers.length < 2) {
-      const bankruptNames = bankruptPlayers.map(p => p.displayName).join(', ');
-      throw new Error(
-        `Cannot start: only ${eligiblePlayers.length} player(s) can afford the boot. Bankrupt: ${bankruptNames || 'none'}`
-      );
+    const connectedPlayers = Array.from(room.players.values()).filter(p => p.connected);
+    if (connectedPlayers.length < 2) {
+      throw new Error('Need at least 2 connected players to start a round');
     }
 
     room.startRound();
@@ -107,15 +98,12 @@ class GameEngine {
       wallets[id] = p.wallet;
     }
 
-    const currentPlayerId = room.turnOrder[room.currentTurnIndex];
-
     io.to(room.gameId).emit('roundStarted', {
       roundNumber: room.roundNumber,
       turnOrder: room.turnOrder,
       currentStake: room.currentStake,
       pot: room.pot,
       wallets,
-      currentTurnPlayerId: currentPlayerId,
       hostId: room.hostId,
       players: Object.fromEntries(
         Array.from(room.players.entries()).map(([k, v]) => [
@@ -127,9 +115,6 @@ class GameEngine {
         ])
       ),
     });
-
-    // Broadcast initial turn
-    this.broadcastTurnChange(room, io);
   }
 
   /**

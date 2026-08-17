@@ -8,10 +8,11 @@ export default class Player {
     this.playerId = playerId;
     this.displayName = displayName;
     this.wallet = wallet;
-    this.status = 'waiting'; // 'waiting', 'blind', 'seen', 'packed'
+    this.status = 'waiting'; // 'waiting', 'blind', 'seen', 'all_in', 'packed'
     this.connected = true;
     this.totalBuyIn = wallet;
     this.socketId = null;
+    this.hasBooted = false;
   }
 
   toJSON() {
@@ -21,7 +22,8 @@ export default class Player {
       wallet: this.wallet,
       status: this.status,
       connected: this.connected,
-      totalBuyIn: this.totalBuyIn
+      totalBuyIn: this.totalBuyIn,
+      hasBooted: this.hasBooted,
     };
   }
 

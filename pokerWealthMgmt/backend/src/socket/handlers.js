@@ -58,7 +58,7 @@ export function setupSocketHandlers(io, socket) {
     socket.emit('stateSync', room.getFullState());
   }
 
-  // ─── Player Action (Blind, Seen, Chaal, Raise, Pack, Show) ───
+  // ─── Player Action (Boot, Blind, Seen, Chaal, Raise, All-In, Back Show, Pack, Show) ───
   socket.on('playerAction', (data) => {
     try {
       const parsed = playerActionSchema.parse(data);
@@ -68,15 +68,110 @@ export function setupSocketHandlers(io, socket) {
       }
 
       const result = gameEngine.processPlayerAction(room, playerId, parsed, io);
-
-      // Reset turn timer after successful action (if game still in betting phase)
-      if (room.phase === 'BETTING') {
-        turnTimer.resetTimer(gameId, room, io);
-      } else {
-        turnTimer.clearTimer(gameId);
+      
+      if (parsed.action === 'BACK_SHOW') {
+        io.to(gameId).emit('backShowRequested', {
+          requesterId: playerId,
+          displayName: displayName,
+          cost: room.currentStake,
+        });
       }
     } catch (err) {
       socket.emit('error', { message: err.message, code: 'ACTION_ERROR' });
+    }
+  });
+
+  // ─── Resolve Back Show ───
+  socket.on('resolveBackShow', (data) => {
+    try {
+      const { accepted, loserPlayerId } = data || {};
+      const room = roomManager.getRoom(gameId);
+      if (!room) return;
+
+      const wallets = {};
+      for (const [id, p] of room.players.entries()) {
+        wallets[id] = p.wallet;
+      }
+
+      if (accepted && loserPlayerId) {
+        const loser = room.players.get(loserPlayerId);
+        if (loser) {
+          loser.status = 'packed';
+          room.actionLog.push({
+            playerId: loserPlayerId,
+            action: 'PACK',
+            amount: 0,
+            timestamp: Date.now(),
+          });
+        }
+
+        const active = room.getActivePlayers();
+        if (active.length === 1 && room.phase === 'BETTING') {
+          const winnerPot = room.declareWinner(active[0].playerId);
+          const updatedWallets = {};
+          for (const [id, p] of room.players.entries()) {
+            updatedWallets[id] = p.wallet;
+          }
+          io.to(gameId).emit('roundSettled', {
+            winnerId: active[0].playerId,
+            displayName: active[0].displayName,
+            potAmount: winnerPot,
+            wallets: updatedWallets,
+            roundNumber: room.roundNumber,
+          });
+        }
+
+        io.to(gameId).emit('backShowResolved', {
+          accepted: true,
+          loserPlayerId,
+          loserName: loser?.displayName || '',
+          wallets,
+          players: Object.fromEntries(
+            Array.from(room.players.entries()).map(([k, v]) => [k, v.toJSON()])
+          ),
+        });
+      } else {
+        io.to(gameId).emit('backShowResolved', {
+          accepted: false,
+        });
+      }
+    } catch (err) {
+      socket.emit('error', { message: err.message, code: 'RESOLVE_BACK_SHOW_ERROR' });
+    }
+  });
+
+  // ─── Host Direct Add Money ───
+  socket.on('hostAddMoney', (data) => {
+    try {
+      const { targetPlayerId, amount } = data || {};
+      const room = roomManager.getRoom(gameId);
+      if (!room) {
+        return socket.emit('error', { message: 'Room not found', code: 'ROOM_NOT_FOUND' });
+      }
+      if (room.hostId !== playerId) {
+        return socket.emit('error', { message: 'Only the host can add money', code: 'NOT_HOST' });
+      }
+      if (!targetPlayerId || !amount || amount <= 0) {
+        return socket.emit('error', { message: 'Valid targetPlayerId and amount required', code: 'INVALID_INPUT' });
+      }
+
+      const newBalance = room.addMoney(targetPlayerId, Number(amount));
+      const targetPlayer = room.players.get(targetPlayerId);
+
+      const wallets = {};
+      for (const [id, p] of room.players.entries()) {
+        wallets[id] = p.wallet;
+      }
+
+      io.to(gameId).emit('topUpApproved', {
+        playerId: targetPlayerId,
+        displayName: targetPlayer ? targetPlayer.displayName : '',
+        amount: Number(amount),
+        newWallet: newBalance,
+        wallets,
+      });
+    } catch (err) {
+      socket.emit('error', { message: err.message, code: 'HOST_ADD_MONEY_ERROR' });
     }
   });
 
@@ -92,9 +187,6 @@ export function setupSocketHandlers(io, socket) {
       }
 
       gameEngine.startNewRound(room, io);
-
-      // Start the turn timer
-      turnTimer.startTimer(gameId, room, io, room.config.turnTimerSeconds * 1000);
     } catch (err) {
       socket.emit('error', { message: err.message, code: 'START_ROUND_ERROR' });
     }
@@ -120,7 +212,6 @@ export function setupSocketHandlers(io, socket) {
         }
         gameEngine.declareWinner(room, winnerId, io);
       }
-      turnTimer.clearTimer(gameId);
     } catch (err) {
       socket.emit('error', { message: err.message, code: 'DECLARE_WINNER_ERROR' });
     }
@@ -174,11 +265,17 @@ export function setupSocketHandlers(io, socket) {
       targetPlayer.credit(amount);
       targetPlayer.totalBuyIn += amount;
 
+      const wallets = {};
+      for (const [id, p] of room.players.entries()) {
+        wallets[id] = p.wallet;
+      }
+
       io.to(gameId).emit('topUpApproved', {
         playerId: targetPlayerId,
         displayName: targetPlayer.displayName,
         amount,
         newWallet: targetPlayer.wallet,
+        wallets,
       });
     } catch (err) {
       socket.emit('error', { message: err.message, code: 'TOPUP_APPROVE_ERROR' });

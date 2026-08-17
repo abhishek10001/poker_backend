@@ -25,13 +25,14 @@ router.post('/', async (req, res) => {
       });
     }
 
-    const { hostDisplayName, config } = parsed.data;
-    const result = await roomManager.createRoom(hostDisplayName, config);
+    const { hostDisplayName, config, hostBuyIn } = parsed.data;
+    const result = await roomManager.createRoom(hostDisplayName, config, hostBuyIn);
 
     res.status(201).json({
       gameId: result.gameId,
       playerId: result.hostPlayerId,
       sessionToken: result.sessionToken,
+      hostWallet: result.hostWallet,
     });
   } catch (err) {
     console.error('Create room error:', err);
@@ -43,9 +44,9 @@ router.post('/', async (req, res) => {
  * POST /api/rooms/:gameId/join
  * Join an existing game room.
  * 
- * Body: { displayName: string, buyInAmount: number }
+ * Body: { displayName: string, buyInAmount?: number, playerId?: string }
  * 
- * Returns: { playerId, sessionToken }
+ * Returns: { playerId, sessionToken, gameId, phase, config, reconnected, player }
  */
 router.post('/:gameId/join', async (req, res) => {
   try {
@@ -59,8 +60,8 @@ router.post('/:gameId/join', async (req, res) => {
       });
     }
 
-    const { displayName, buyInAmount } = parsed.data;
-    const result = await roomManager.joinRoom(gameId, displayName, buyInAmount);
+    const { displayName, buyInAmount, playerId } = parsed.data;
+    const result = await roomManager.joinRoom(gameId, displayName, buyInAmount, playerId);
 
     res.status(200).json({
       playerId: result.playerId,
@@ -68,6 +69,8 @@ router.post('/:gameId/join', async (req, res) => {
       gameId: result.gameId,
       phase: result.phase,
       config: result.config,
+      reconnected: result.reconnected || false,
+      player: result.player,
     });
   } catch (err) {
     if (err.message === 'Room not found') {
