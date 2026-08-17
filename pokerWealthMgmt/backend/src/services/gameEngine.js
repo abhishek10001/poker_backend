@@ -47,16 +47,18 @@ class GameEngine {
 
     // Handle post-action state
     if (room.phase === 'SETTLEMENT') {
-      // Auto-win happened (everyone else packed)
+      // Auto-win or tie happened (everyone else packed)
       const activePlayers = room.getActivePlayers();
       const winner = activePlayers.length === 1 ? activePlayers[0] : null;
+      const isTie = !winner || activePlayers.length === 0;
 
       io.to(room.gameId).emit('roundSettled', {
         winnerId: winner ? winner.playerId : null,
-        displayName: winner ? winner.displayName : '',
+        displayName: winner ? winner.displayName : (isTie ? 'Split Pot (Tie)' : 'Winner'),
         potAmount: settledPotAmount,
         wallets,
         roundNumber: room.roundNumber,
+        isTie: isTie,
       });
     } else if (room.phase === 'SHOWDOWN') {
       // Show was requested — prompt for winner declaration

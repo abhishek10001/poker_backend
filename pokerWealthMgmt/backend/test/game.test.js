@@ -93,4 +93,38 @@ describe('Poker Game Room & Wealth Management Features', () => {
     expect(room.players.get(bobId).wallet).toBe(prevWallet + 1000);
     expect(room.players.get(bobId).totalBuyIn).toBe(2000 + 1000);
   });
+
+  test('7. Auto-settlement when players pack until 1 remaining', async () => {
+    const createRes = await roomManager.createRoom('Player1', { bootAmount: 50 }, 1000);
+    const p1Id = createRes.hostPlayerId;
+    const p2Res = await roomManager.joinRoom(createRes.gameId, 'Player2', 1000);
+    const p2Id = p2Res.playerId;
+    const testRoom = roomManager.getRoom(createRes.gameId);
+
+    testRoom.startRound();
+    testRoom.processAction(p1Id, { action: 'BOOT' });
+    testRoom.processAction(p2Id, { action: 'BOOT' });
+
+    expect(testRoom.pot).toBe(100);
+    expect(testRoom.phase).toBe('BETTING');
+
+    // Player 2 packs -> Player 1 automatically wins and phase transitions to SETTLEMENT
+    testRoom.processAction(p2Id, { action: 'PACK' });
+    expect(testRoom.phase).toBe('SETTLEMENT');
+    expect(testRoom.players.get(p1Id).wallet).toBe(1050); // 1000 - 50 + 100 = 1050
+  });
+
+  test('8. Auto-settlement when sole booted player packs', async () => {
+    const createRes = await roomManager.createRoom('Alice', { bootAmount: 50 }, 1000);
+    const aId = createRes.hostPlayerId;
+    await roomManager.joinRoom(createRes.gameId, 'Bob', 1000);
+    const testRoom = roomManager.getRoom(createRes.gameId);
+
+    testRoom.startRound();
+    testRoom.processAction(aId, { action: 'BOOT' });
+    // Alice packs -> no booted players remaining, phase automatically transitions to SETTLEMENT
+    testRoom.processAction(aId, { action: 'PACK' });
+
+    expect(testRoom.phase).toBe('SETTLEMENT');
+  });
 });

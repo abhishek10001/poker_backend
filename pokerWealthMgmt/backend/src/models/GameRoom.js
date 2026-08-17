@@ -98,10 +98,25 @@ export default class GameRoom {
 
     this.actionLog.push({ playerId, action, amount, timestamp: Date.now() });
 
-    // Check auto-win if everyone else has packed
-    const nonPacked = Array.from(this.players.values()).filter(p => p.connected && p.status !== 'packed');
-    if (nonPacked.length === 1 && this.phase === 'BETTING') {
-      this.declareWinner(nonPacked[0].playerId);
+    // Check auto-win / settlement if players have packed
+    const nonPackedBooted = Array.from(this.players.values()).filter(p => p.hasBooted && p.connected && p.status !== 'packed');
+    const allBooted = Array.from(this.players.values()).filter(p => p.hasBooted && p.connected);
+
+    if (this.phase === 'BETTING') {
+      if (allBooted.length > 0) {
+        if (nonPackedBooted.length === 1 && (allBooted.length > 1 || action === 'PACK')) {
+          this.declareWinner(nonPackedBooted[0].playerId);
+        } else if (nonPackedBooted.length === 0) {
+          this.declareTie();
+        }
+      } else {
+        const nonPacked = Array.from(this.players.values()).filter(p => p.connected && p.status !== 'packed');
+        if (nonPacked.length === 1 && action === 'PACK') {
+          this.declareWinner(nonPacked[0].playerId);
+        } else if (nonPacked.length === 0) {
+          this.declareTie();
+        }
+      }
     }
 
     return { action, pot: this.pot, delta: this.pot - startPot };
