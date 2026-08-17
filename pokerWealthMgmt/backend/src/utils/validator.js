@@ -2,14 +2,14 @@ import { z } from 'zod';
 
 export const createRoomSchema = z.object({
   hostDisplayName: z.string().min(1).max(50),
-  hostBuyIn: z.number().positive().optional(),
+  hostBuyIn: z.number().positive().optional().default(1000),
   config: z.object({
-    bootAmount: z.number().positive(),
-    maxRaiseMultiplier: z.number().positive(),
-    maxPlayers: z.number().int().min(2).max(10),
-    turnTimerSeconds: z.number().int().min(10).max(120).optional().default(30),
-    chipLabel: z.string().default('₹')
-  })
+    bootAmount: z.number().positive().optional().default(100),
+    maxRaiseMultiplier: z.number().positive().optional().default(4),
+    maxPlayers: z.number().int().min(2).max(20).optional().default(6),
+    turnTimerSeconds: z.number().int().min(0).max(300).optional().default(0),
+    chipLabel: z.string().optional().default('₹')
+  }).optional().default({})
 });
 
 export const joinRoomSchema = z.object({
